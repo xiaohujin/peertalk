@@ -1,5 +1,6 @@
 #import "PTExampleProtocol.h"
 #import "PTViewController.h"
+#import "TransferSpeedWatch.h"
 
 @interface PTViewController () {
   __weak PTChannel *serverChannel_;
@@ -10,6 +11,9 @@
 @end
 
 @implementation PTViewController
+{
+    TransferSpeedWatch* watcher;
+}
 
 @synthesize outputTextView = outputTextView_;
 @synthesize inputTextField = inputTextField_;
@@ -33,6 +37,30 @@
       serverChannel_ = channel;
     }
   }];
+    
+    watcher = [[TransferSpeedWatch alloc] initWithFrame:CGRectMake(160, 100, 160, 20)];
+    [self.view addSubview:watcher];
+    
+    
+    //CREAT FILE
+    
+     NSFileManager *fileManager = [NSFileManager defaultManager];
+    
+     NSArray *directoryPaths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,      NSUserDomainMask, YES);
+    
+     NSString *documentDirectory = [directoryPaths objectAtIndex:0];
+    
+     filePath = [documentDirectory stringByAppendingPathComponent:@"test.txt"];
+    
+    
+    
+    //查找文件，如果不存在，就创建一个文件
+    
+    if (![fileManager fileExistsAtPath:filePath]) {
+        
+        [fileManager createFileAtPath:filePath contents:nil attributes:nil];
+        
+    }
 }
 
 - (void)viewDidUnload {
@@ -133,15 +161,67 @@
 
 // Invoked when a new frame has arrived on a channel.
 - (void)ioFrameChannel:(PTChannel*)channel didReceiveFrameOfType:(uint32_t)type tag:(uint32_t)tag payload:(PTData*)payload {
-  //NSLog(@"didReceiveFrameOfType: %u, %u, %@", type, tag, payload);
+  
+    //NSLog(@"didReceiveFrameOfType: %u, %u, %@", type, tag, payload);
+    
   if (type == PTExampleFrameTypeTextMessage) {
+      
     PTExampleTextFrame *textFrame = (PTExampleTextFrame*)payload.data;
     textFrame->length = ntohl(textFrame->length);
+    [watcher appendReceivedDataSize:textFrame->length];
+      
     NSString *message = [[NSString alloc] initWithBytes:textFrame->utf8text length:textFrame->length encoding:NSUTF8StringEncoding];
-    [self appendOutputMessage:[NSString stringWithFormat:@"[%@]: %@", channel.userInfo, message]];
+    NSData *aData = [message dataUsingEncoding: NSUTF8StringEncoding];
+      
+      _MediaFile=fopen([@"test.txt" UTF8String], [@"wb+" UTF8String]);
+
+          if([message isEqualToString:@"START"])
+      {
+          
+              UIAlertView *complateAlert = [[UIAlertView alloc] initWithTitle:@"提示"
+                                                                      message:@"覆盖上次的文件"
+                                                                     delegate:nil
+                                                            cancelButtonTitle:@"OK"
+                                                            otherButtonTitles:nil];
+              [complateAlert show];
+//          _MediaFile=fopen([@"test.MOV" UTF8String], [@"wb+" UTF8String]);
+//          _readSize+=textFrame->length;
+          //fwrite((const void *)[aData bytes], _readSize, 1, _MediaFile);
+     
+          [watcher startWatch];
+          [self appendOutputMessage:message];
+      }
+      
+     // [self appendOutputMessage:message];
+      
+      [aData writeToFile:filePath atomically:YES];
+      
+     //[self appendOutputMessage:[NSString stringWithFormat:@"[%@]: %@", channel.userInfo, message]];
+      
+      if([message isEqualToString:@"STOP"])
+    {
+        NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+        NSString *documentDirectory = [paths objectAtIndex:0];
+        NSString* FilePath = [documentDirectory stringByAppendingPathComponent:@"test.txt"];
+        
+            UIAlertView *complateAlert = [[UIAlertView alloc] initWithTitle:@"success"
+                                                                    message:FilePath
+                                                                   delegate:nil
+                                                          cancelButtonTitle:@"OK"
+                                                          otherButtonTitles:nil];
+        [complateAlert show];
+        
+        
+          [watcher stopWatch];
+          [self appendOutputMessage:nil];
+        
+      }
+    
   } else if (type == PTExampleFrameTypePing && peerChannel_) {
     [peerChannel_ sendFrameOfType:PTExampleFrameTypePong tag:tag withPayload:nil callback:nil];
   }
+    
+    
 }
 
 // Invoked when the channel closed. If it closed because of an error, *error* is

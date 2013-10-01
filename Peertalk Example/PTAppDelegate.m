@@ -3,6 +3,8 @@
 #import "PTExampleProtocol.h"
 #import <QuartzCore/QuartzCore.h>
 
+#define SEND_BUFFER_SIZE 1024*10
+
 @interface PTAppDelegate () {
   // If the remote connection is over USB transport...
   NSNumber *connectingToDeviceID_;
@@ -33,6 +35,11 @@
 
 
 @implementation PTAppDelegate
+{
+    BOOL isStart;
+    unsigned char* sendBuffer;
+    dispatch_queue_t sendTestQueue;
+}
 
 @synthesize window = window_;
 @synthesize inputTextField = inputTextField_;
@@ -73,6 +80,16 @@
   
   // Start pinging
   [self ping];
+    
+    isStart = NO;
+    sendBuffer = (unsigned char*)malloc(SEND_BUFFER_SIZE);
+    if (sendBuffer)
+    {
+        memset(sendBuffer, 0x56, SEND_BUFFER_SIZE);
+        sendBuffer[SEND_BUFFER_SIZE - 1] = 0;
+    }
+    
+    sendTestQueue = dispatch_queue_create("sendTestQueue", DISPATCH_QUEUE_CONCURRENT);
 }
 
 
@@ -87,9 +104,44 @@
     }];
     [self presentMessage:[NSString stringWithFormat:@"[you]: %@", message] isStatus:NO];
     self.inputTextField.stringValue = @"";
+      if ([message isEqualToString:@"START"])
+      {
+          isStart = YES;
+          [self beginTransfferData];
+      }
+      if([message isEqualToString:@"STOP"])
+      {
+          isStart = NO;
+      }
   }
 }
 
+-(void) beginTransfferData
+{
+    usleep(100*1000);
+    dispatch_async(sendTestQueue, ^{
+        while (isStart)
+        {
+            PTExampleTextFrame *textFrame = CFAllocatorAllocate(nil, sizeof(PTExampleTextFrame) + SEND_BUFFER_SIZE, 0);
+            memcpy(textFrame->utf8text, sendBuffer, SEND_BUFFER_SIZE); // Copy bytes to utf8text array
+            textFrame->length = htonl(SEND_BUFFER_SIZE); // Convert integer to network byte order
+            
+            // Wrap the textFrame in a dispatch data object
+            dispatch_data_t payload = dispatch_data_create((const void*)textFrame, sizeof(PTExampleTextFrame)+SEND_BUFFER_SIZE, nil, ^{
+                CFAllocatorDeallocate(nil, textFrame);
+            });
+            [connectedChannel_ sendFrameOfType:PTExampleFrameTypeTextMessage tag:PTFrameNoTag withPayload:payload callback:^(NSError *error) {
+                if (error) {
+                    NSLog(@"Failed to send message: %@", error);
+                }
+            }];
+            dispatch_release(payload);
+            
+            usleep(400);
+        }
+    });
+
+}
 
 - (void)presentMessage:(NSString*)message isStatus:(BOOL)isStatus {
   NSLog(@">> %@", message);
